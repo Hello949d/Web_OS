@@ -1,4 +1,6 @@
 function initFileManager(container) {
+    // This app is initialized differently, it gets the container, not creates the window
+    // So we can't set the window size here. We need to do it in desktop.js
     let currentParentId = null;
     let pathHistory = [{ id: null, name: 'Home' }];
 
@@ -15,10 +17,11 @@ function initFileManager(container) {
             <div id="fm-file-view" class="flex-grow p-2 overflow-y-auto">
                 <!-- Files will be rendered here -->
             </div>
-            <div id="fm-context-menu" class="hidden absolute bg-gray-900 rounded shadow-lg p-2">
+            <div id="fm-context-menu" class="hidden absolute bg-gray-900 rounded shadow-lg p-2 z-50">
                 <div class="p-1 hover:bg-gray-700 cursor-pointer" data-action="rename">Rename</div>
                 <div class="p-1 hover:bg-gray-700 cursor-pointer" data-action="delete">Delete</div>
                 <div class="p-1 hover:bg-gray-700 cursor-pointer" data-action="download">Download</div>
+                <div class="p-1 hover:bg-gray-700 cursor-pointer" data-action="new-file">New Text File</div>
             </div>
         </div>
     `;
@@ -84,7 +87,8 @@ function initFileManager(container) {
                         } else if (isImageFile) {
                             initImageViewer(file.id, file.filename);
                         } else {
-                            alert('No application available to open this file type.');
+                            // Default to text editor for unknown files
+                            initTextEditor(file.id, file.filename);
                         }
                     }
                 });
@@ -130,22 +134,35 @@ function initFileManager(container) {
     let contextFile = null; // To store which file the context menu is for
 
     // --- Context Menu ---
-    fileView.addEventListener('contextmenu', (e) => {
+    function showContextMenu(e, target) {
         e.preventDefault();
-        const targetFile = e.target.closest('.desktop-icon');
-        if (targetFile) {
+        contextMenu.style.top = `${e.clientY}px`;
+        contextMenu.style.left = `${e.clientX}px`;
+        contextMenu.classList.remove('hidden');
+
+        const isFile = target && target.classList.contains('desktop-icon');
+
+        // Toggle item visibility based on target
+        contextMenu.querySelector('[data-action="rename"]').style.display = isFile ? 'block' : 'none';
+        contextMenu.querySelector('[data-action="delete"]').style.display = isFile ? 'block' : 'none';
+        contextMenu.querySelector('[data-action="download"]').style.display = (isFile && target.dataset.isFolder === 'false') ? 'block' : 'none';
+        contextMenu.querySelector('[data-action="new-file"]').style.display = isFile ? 'none' : 'block';
+
+        if (isFile) {
             contextFile = {
-                id: targetFile.dataset.id,
-                isFolder: targetFile.dataset.isFolder === 'true'
+                id: target.dataset.id,
+                isFolder: target.dataset.isFolder === 'true'
             };
+        } else {
+            contextFile = null;
+        }
+    }
 
-            // Show/hide download option
-            const downloadOption = contextMenu.querySelector('[data-action="download"]');
-            downloadOption.style.display = contextFile.isFolder ? 'none' : 'block';
-
-            contextMenu.style.top = `${e.clientY}px`;
-            contextMenu.style.left = `${e.clientX}px`;
-            contextMenu.classList.remove('hidden');
+    fileView.addEventListener('contextmenu', (e) => {
+        const targetFile = e.target.closest('.desktop-icon');
+        // If right-clicking on a file or on the background
+        if (targetFile || e.target === fileView) {
+            showContextMenu(e, targetFile);
         }
     });
 
@@ -160,6 +177,15 @@ function initFileManager(container) {
         const action = e.target.dataset.action;
 
         switch(action) {
+            case 'new-file':
+                await fetch('/api/files/new_text_file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ parent_id: currentParentId })
+                });
+                renderFiles(currentParentId);
+                break;
             case 'rename':
                 const newName = prompt('Enter new name:');
                 if (newName) {

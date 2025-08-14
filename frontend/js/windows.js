@@ -1,7 +1,7 @@
 let zIndexCounter = 100;
 const openWindows = {};
 
-function createWindow(appId, title, content) {
+function createWindow(appId, title, content, options = {}) {
     // If window already exists, focus it and return null
     if (openWindows[appId]) {
         focusWindow(openWindows[appId]);
@@ -16,6 +16,9 @@ function createWindow(appId, title, content) {
     win.style.left = `${Math.random() * 200 + 50}px`;
     win.style.top = `${Math.random() * 100 + 50}px`;
     win.style.zIndex = zIndexCounter++;
+
+    if (options.width) win.style.width = `${options.width}px`;
+    if (options.height) win.style.height = `${options.height}px`;
 
     win.innerHTML = `
         <div class="window-header">

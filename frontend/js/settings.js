@@ -2,7 +2,7 @@ function initSettings() {
     const appId = 'settings';
     const title = 'Settings';
 
-    const windowBody = createWindow(appId, title, '');
+    const windowBody = createWindow(appId, title, '', { width: 400, height: 300 });
     if (!windowBody) return;
 
     // --- UI Setup ---

@@ -3,7 +3,7 @@ function initTextEditor(fileId, fileName) {
     const title = `${fileName} - Text Editor`;
 
     // Create a new window for the text editor
-    const windowBody = createWindow(appId, title, '');
+    const windowBody = createWindow(appId, title, '', { width: 500, height: 600 });
     if (!windowBody) {
         // Window already exists, it has been focused.
         return;

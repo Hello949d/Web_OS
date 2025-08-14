@@ -449,6 +449,53 @@ def update_settings():
 
     return jsonify({'message': 'Settings updated successfully'})
 
+@app.route('/api/files/new_text_file', methods=['POST'])
+@login_required
+def new_text_file():
+    user_id = session['user_id']
+    data = request.get_json()
+    parent_id = data.get('parent_id')
+
+    conn = get_db_connection()
+
+    # Find a unique filename
+    base_name = "Untitled"
+    extension = ".txt"
+    filename = f"{base_name}{extension}"
+    counter = 1
+
+    # Build query to check for existing file
+    query = 'SELECT 1 FROM files WHERE user_id = ? AND filename = ? AND '
+    params = [user_id, filename]
+    if parent_id is None:
+        query += 'parent_id IS NULL'
+    else:
+        query += 'parent_id = ?'
+        params.append(parent_id)
+
+    while conn.execute(query, tuple(params)).fetchone():
+        filename = f"{base_name} ({counter}){extension}"
+        params[1] = filename # Update filename in params
+        counter += 1
+
+    # Create the empty physical file and the DB record
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO files (user_id, parent_id, filename, is_folder, file_path) VALUES (?, ?, ?, ?, ?)',
+        (user_id, parent_id, filename, False, 'placeholder')
+    )
+    file_id = cursor.lastrowid
+
+    file_path = os.path.join(UPLOADS_FOLDER_PATH, str(user_id), str(file_id))
+    with open(file_path, 'w') as f:
+        pass # Create empty file
+
+    cursor.execute('UPDATE files SET file_path = ? WHERE id = ?', (file_path, file_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({'message': 'File created successfully', 'id': file_id, 'filename': filename}), 201
+
 # --- Static File Serving ---
 @app.route('/')
 def index():

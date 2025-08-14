@@ -2,7 +2,7 @@ function initImageViewer(fileId, fileName) {
     const appId = `image-viewer-${fileId}`;
     const title = `${fileName} - Image Viewer`;
 
-    const windowBody = createWindow(appId, title, '');
+    const windowBody = createWindow(appId, title, '', { width: 500, height: 400 });
     if (!windowBody) {
         return;
     }

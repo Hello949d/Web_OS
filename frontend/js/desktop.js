@@ -51,8 +51,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const appName = icon.dataset.app;
             const appTitle = icon.querySelector('span').textContent;
 
+            let windowBody;
             // Create the window, get the body element back
-            const windowBody = createWindow(appName, appTitle, ''); // Create with empty content
+            if (appName === 'file-manager') {
+                windowBody = createWindow(appName, appTitle, '', { width: 600, height: 400 });
+            } else {
+                windowBody = createWindow(appName, appTitle, ''); // Create with empty content
+            }
 
             if (windowBody) {
                 // Launch the specific app
@@ -61,6 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     initFileManager(windowBody);
                 } else if (appName === 'terminal') {
                     initTerminal();
+                } else if (appName === 'calculator') {
+                    initCalculator();
                 }
             }
         }
