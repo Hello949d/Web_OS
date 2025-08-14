@@ -1,0 +1,4 @@
+Flask
+Flask-Bcrypt
+Flask-Session
+Flask-Cors

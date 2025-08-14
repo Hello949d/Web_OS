@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebOS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style type="text/tailwindcss">
+        .desktop-icon {
+            @apply flex flex-col items-center justify-center text-center w-24 h-24 p-2 m-2 rounded-lg cursor-pointer hover:bg-white hover:bg-opacity-20;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        .desktop-icon i {
+            @apply mb-2;
+        }
+        .desktop-icon span {
+            @apply text-sm;
+        }
+        .app-window {
+            @apply absolute bg-gray-800 bg-opacity-80 backdrop-blur-md border border-gray-600 rounded-lg shadow-2xl flex flex-col;
+            min-width: 250px;
+            min-height: 150px;
+        }
+        .window-header {
+            @apply bg-gray-900 h-8 flex items-center justify-between px-2 cursor-move rounded-t-lg;
+        }
+        .window-title {
+            @apply text-sm font-bold truncate;
+        }
+        .window-controls button {
+            @apply w-6 h-6 ml-1 text-xs text-white bg-gray-700 rounded hover:bg-gray-600;
+        }
+        .window-controls .close-btn:hover {
+            @apply bg-red-600;
+        }
+        .window-body {
+            @apply p-4 flex-grow;
+        }
+        .resizer {
+            position: absolute;
+            background: transparent;
+            z-index: 10;
+        }
+        .resizer.top-left { top: -5px; left: -5px; width: 10px; height: 10px; cursor: nwse-resize; }
+        .resizer.top-right { top: -5px; right: -5px; width: 10px; height: 10px; cursor: nesw-resize; }
+        .resizer.bottom-left { bottom: -5px; left: -5px; width: 10px; height: 10px; cursor: nesw-resize; }
+        .resizer.bottom-right { bottom: -5px; right: -5px; width: 10px; height: 10px; cursor: nwse-resize; }
+        .resizer.top { top: -5px; left: 5px; right: 5px; height: 10px; cursor: ns-resize; }
+        .resizer.bottom { bottom: -5px; left: 5px; right: 5px; height: 10px; cursor: ns-resize; }
+        .resizer.left { top: 5px; bottom: 5px; left: -5px; width: 10px; cursor: ew-resize; }
+        .resizer.right { top: 5px; bottom: 5px; right: -5px; width: 10px; cursor: ew-resize; }
+    </style>
+</head>
+<body class="bg-gray-800 text-white overflow-hidden">
+
+    <!-- Desktop -->
+    <main id="desktop" class="w-full h-screen bg-cover bg-center" style="background-image: url('/assets/wallpapers/default.jpg');">
+        <!-- Desktop Icons -->
+        <div id="desktop-icons" class="p-4">
+            <div class="desktop-icon" data-app="file-manager">
+                <i class="fas fa-folder fa-3x"></i>
+                <span>File Manager</span>
+            </div>
+             <div class="desktop-icon" data-app="text-editor">
+                <i class="fas fa-file-alt fa-3x"></i>
+                <span>Text Editor</span>
+            </div>
+            <div class="desktop-icon" data-app="terminal">
+                <i class="fas fa-terminal fa-3x"></i>
+                <span>Terminal</span>
+            </div>
+            <!-- Add more icons as apps are developed -->
+        </div>
+
+        <!-- App Windows Container -->
+        <div id="window-container"></div>
+
+        <!-- Notification Container -->
+        <div id="notification-container" class="fixed top-5 right-5 z-[9999] space-y-2"></div>
+    </main>
+
+    <!-- Taskbar -->
+    <footer id="taskbar" class="fixed bottom-0 left-0 w-full bg-gray-900 bg-opacity-80 backdrop-blur-md h-12 flex items-center px-2">
+        <!-- Start Menu -->
+        <div id="start-button" class="px-3 py-1 rounded hover:bg-gray-700 cursor-pointer">
+            <i class="fab fa-windows fa-lg"></i>
+        </div>
+        <div id="start-menu" class="hidden absolute bottom-12 left-0 bg-gray-800 rounded-t-lg shadow-lg w-64 p-2">
+            <div class="p-2 hover:bg-gray-700 rounded cursor-pointer" id="settings-app-button">Settings</div>
+            <div class="p-2 hover:bg-gray-700 rounded cursor-pointer" id="logout-button">Logout</div>
+        </div>
+
+        <!-- Running Apps -->
+        <div id="running-apps" class="flex-grow h-full flex items-center px-4">
+            <!-- Icons of running apps will go here -->
+        </div>
+
+        <!-- Clock -->
+        <div id="clock" class="text-sm px-3 py-1">12:00 PM</div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/js/windows.js"></script>
+    <script src="/js/file-manager.js"></script>
+    <script src="/js/text-editor.js"></script>
+    <script src="/js/image-viewer.js"></script>
+    <script src="/js/terminal.js"></script>
+    <script src="/js/settings.js"></script>
+    <script src="/js/notifications.js"></script>
+    <script src="/js/desktop.js"></script>
+    <script>
+        // Basic session check on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('/api/check_session', { credentials: 'include' });
+                if (!response.ok) {
+                    window.location.href = '/login.html';
+                }
+            } catch (error) {
+                console.error('Session check failed:', error);
+                window.location.href = '/login.html';
+            }
+        });
+    </script>
+</body>
+</html>

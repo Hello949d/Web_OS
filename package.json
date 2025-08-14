@@ -1,0 +1,25 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "description": "A fully functional web-based operating system with a Flask backend and user login.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:css": "./node_modules/.bin/tailwindcss -i ./frontend/css/input.css -o ./frontend/css/output.css --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hello949d/Web_OS.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Hello949d/Web_OS/issues"
+  },
+  "homepage": "https://github.com/Hello949d/Web_OS#readme",
+  "devDependencies": {
+    "tailwindcss": "^4.1.12"
+  }
+}
