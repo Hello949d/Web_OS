@@ -7,21 +7,16 @@ function initFileManager(container) {
     // --- UI Setup ---
     container.innerHTML = `
         <div class="file-manager h-full flex flex-col">
-            <div class="toolbar bg-gray-700 p-1 flex items-center">
+            <div class="toolbar bg-gray-700 p-1 flex items-center gap-2">
                 <button id="fm-back" class="px-2 py-1 rounded hover:bg-gray-600"><i class="fas fa-arrow-left"></i></button>
                 <div id="fm-breadcrumbs" class="px-2 text-sm">/</div>
                 <div class="flex-grow"></div>
-                <button id="fm-new-folder" class="px-2 py-1 rounded hover:bg-gray-600 mr-2"><i class="fas fa-folder-plus"></i> New Folder</button>
+                <input type="search" id="fm-search" placeholder="Search..." class="px-2 py-1 rounded bg-gray-800 text-white w-48">
+                <button id="fm-new-folder" class="px-2 py-1 rounded hover:bg-gray-600"><i class="fas fa-folder-plus"></i> New Folder</button>
                 <button id="fm-upload" class="px-2 py-1 rounded hover:bg-gray-600"><i class="fas fa-upload"></i> Upload</button>
             </div>
-            <div id="fm-file-view" class="flex-grow p-2 overflow-y-auto">
+            <div id="fm-file-view" class="flex-grow p-2 overflow-y-auto flex flex-wrap content-start gap-2">
                 <!-- Files will be rendered here -->
-            </div>
-            <div id="fm-context-menu" class="hidden absolute bg-gray-900 rounded shadow-lg p-2 z-50">
-                <div class="p-1 hover:bg-gray-700 cursor-pointer" data-action="rename">Rename</div>
-                <div class="p-1 hover:bg-gray-700 cursor-pointer" data-action="delete">Delete</div>
-                <div class="p-1 hover:bg-gray-700 cursor-pointer" data-action="download">Download</div>
-                <div class="p-1 hover:bg-gray-700 cursor-pointer" data-action="new-file">New Text File</div>
             </div>
         </div>
     `;
@@ -116,6 +111,20 @@ function initFileManager(container) {
     });
 
     // --- Event Listeners for Toolbar ---
+    const searchInput = container.querySelector('#fm-search');
+    searchInput.addEventListener('input', (e) => {
+        const searchTerm = e.target.value.toLowerCase();
+        const icons = fileView.querySelectorAll('.desktop-icon');
+        icons.forEach(icon => {
+            const fileName = icon.querySelector('span').textContent.toLowerCase();
+            if (fileName.includes(searchTerm)) {
+                icon.style.display = ''; // Restore default display
+            } else {
+                icon.style.display = 'none';
+            }
+        });
+    });
+
     const newFolderBtn = container.querySelector('#fm-new-folder');
     newFolderBtn.addEventListener('click', async () => {
         const folderName = prompt('Enter new folder name:');
@@ -137,93 +146,168 @@ function initFileManager(container) {
     });
 
     const uploadBtn = container.querySelector('#fm-upload');
-    const contextMenu = container.querySelector('#fm-context-menu');
-    let contextFile = null; // To store which file the context menu is for
 
     // --- Context Menu ---
-    function showContextMenu(e, target) {
-        e.preventDefault();
-        contextMenu.style.top = `${e.clientY}px`;
-        contextMenu.style.left = `${e.clientX}px`;
-        contextMenu.classList.remove('hidden');
+    fileView.addEventListener('contextmenu', (e) => {
+        const targetFileElement = e.target.closest('.desktop-icon');
 
-        const isFile = target && target.classList.contains('desktop-icon');
+        if (targetFileElement) {
+            // Clicked on a file or folder
+            const fileId = targetFileElement.dataset.id;
+            const isFolder = targetFileElement.dataset.isFolder === 'true';
 
-        // Toggle item visibility based on target
-        contextMenu.querySelector('[data-action="rename"]').style.display = isFile ? 'block' : 'none';
-        contextMenu.querySelector('[data-action="delete"]').style.display = isFile ? 'block' : 'none';
-        contextMenu.querySelector('[data-action="download"]').style.display = (isFile && target.dataset.isFolder === 'false') ? 'block' : 'none';
-        contextMenu.querySelector('[data-action="new-file"]').style.display = isFile ? 'none' : 'block';
+            const fileMenuOptions = [
+                { label: 'Rename', callback: () => renameFile(fileId) },
+                { label: 'Delete', callback: () => deleteFile(fileId) }
+            ];
 
-        if (isFile) {
-            contextFile = {
-                id: target.dataset.id,
-                isFolder: target.dataset.isFolder === 'true'
-            };
-        } else {
-            contextFile = null;
+            if (!isFolder) {
+                fileMenuOptions.push({ label: 'Download', callback: () => downloadFile(fileId) });
+            }
+            showContextMenu(e, fileMenuOptions);
+
+        } else if (e.target === fileView) {
+            // Clicked on the background
+            const backgroundMenuOptions = [
+                { label: 'New Folder', callback: () => createNewItem('folder') },
+                { label: 'New Text File', callback: () => createNewItem('file') }
+            ];
+            showContextMenu(e, backgroundMenuOptions);
+        }
+    });
+
+    async function renameFile(fileId) {
+        const fileEl = fileView.querySelector(`[data-id='${fileId}']`);
+        if (!fileEl) return;
+
+        const icon = fileEl.querySelector('i');
+        const span = fileEl.querySelector('span');
+        const currentName = span.textContent;
+
+        span.style.display = 'none';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'w-full text-center bg-gray-900 border border-blue-500 rounded';
+        input.value = currentName;
+
+        fileEl.appendChild(input);
+        input.focus();
+        input.select();
+
+        const finalize = async () => {
+            const newName = input.value.trim();
+            if (!newName || newName === currentName) {
+                // If name is empty or unchanged, just restore the view
+                input.remove();
+                span.style.display = 'block';
+                return;
+            }
+
+            const response = await fetch(`/api/files/rename/${fileId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'credentials': 'include' },
+                body: JSON.stringify({ new_name: newName })
+            });
+
+            if (response.ok) showNotification('Renamed successfully.', 'success');
+            else showNotification('Rename failed.', 'error');
+
+            renderFiles(currentParentId); // Refresh the entire view
+        };
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                finalize();
+            } else if (e.key === 'Escape') {
+                input.remove();
+                span.style.display = 'block';
+            }
+        });
+        input.addEventListener('blur', finalize);
+    }
+
+    async function deleteFile(fileId) {
+        if (confirm('Are you sure you want to delete this? This action cannot be undone.')) {
+            const response = await fetch(`/api/files/delete/${fileId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            if (response.ok) showNotification('Deleted successfully.', 'success');
+            else showNotification('Delete failed.', 'error');
+            renderFiles(currentParentId);
         }
     }
 
-    fileView.addEventListener('contextmenu', (e) => {
-        const targetFile = e.target.closest('.desktop-icon');
-        // If right-clicking on a file or on the background
-        if (targetFile || e.target === fileView) {
-            showContextMenu(e, targetFile);
-        }
-    });
+    function downloadFile(fileId) {
+        window.location.href = `/api/files/download/${fileId}`;
+    }
 
-    // Hide context menu on left-click
-    document.addEventListener('click', () => {
-        contextMenu.classList.add('hidden');
-    });
+    async function createNewItem(type) {
+        // Remove empty folder message if it exists
+        const emptyMsg = fileView.querySelector('p');
+        if (emptyMsg) emptyMsg.remove();
 
-    // Context menu actions
-    contextMenu.addEventListener('click', async (e) => {
-        if (!contextFile) return;
-        const action = e.target.dataset.action;
+        const tempId = `temp-${Date.now()}`;
+        const fileEl = document.createElement('div');
+        fileEl.className = 'desktop-icon'; // Reuse desktop icon style
+        fileEl.dataset.id = tempId;
 
-        switch(action) {
-            case 'new-file':
-                await fetch('/api/files/new_text_file', {
+        const iconClass = type === 'folder' ? 'fa-folder' : 'fa-file';
+        const defaultName = type === 'folder' ? 'New Folder' : 'Untitled.txt';
+
+        fileEl.innerHTML = `
+            <i class="fas ${iconClass} fa-2x"></i>
+            <span class="text-xs mt-1" style="display: none;">${defaultName}</span>
+            <input type="text" class="w-full text-center bg-gray-900 border border-blue-500 rounded" value="${defaultName}">
+        `;
+        fileView.appendChild(fileEl);
+
+        const input = fileEl.querySelector('input');
+        input.focus();
+        input.select();
+
+        const finalize = async () => {
+            const newName = input.value.trim();
+            if (!newName) {
+                fileEl.remove(); // Canceled or empty
+                return;
+            }
+
+            let response;
+            if (type === 'folder') {
+                response = await fetch('/api/files/folder', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ parent_id: currentParentId })
+                    headers: { 'Content-Type': 'application/json', 'credentials': 'include' },
+                    body: JSON.stringify({ filename: newName, parent_id: currentParentId })
                 });
-                renderFiles(currentParentId);
-                break;
-            case 'rename':
-                const newName = prompt('Enter new name:');
-                if (newName) {
-                    const response = await fetch(`/api/files/rename/${contextFile.id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'include',
-                        body: JSON.stringify({ new_name: newName })
-                    });
-                    if(response.ok) showNotification('Renamed successfully.', 'success');
-                    else showNotification('Rename failed.', 'error');
-                    renderFiles(currentParentId);
-                }
-                break;
-            case 'delete':
-                if (confirm('Are you sure you want to delete this? This action cannot be undone.')) {
-                    const response = await fetch(`/api/files/delete/${contextFile.id}`, {
-                        method: 'DELETE',
-                        credentials: 'include'
-                    });
-                    if(response.ok) showNotification('Deleted successfully.', 'success');
-                    else showNotification('Delete failed.', 'error');
-                    renderFiles(currentParentId);
-                }
-                break;
-            case 'download':
-                window.location.href = `/api/files/download/${contextFile.id}`;
-                break;
-        }
-        contextFile = null;
-    });
+            } else { // 'file'
+                 response = await fetch('/api/files/new_text_file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'credentials': 'include' },
+                    body: JSON.stringify({ parent_id: currentParentId, filename: newName }) // Assume API can take filename
+                });
+            }
+
+            if (response.ok) {
+                showNotification(`'${newName}' created.`, 'success');
+            } else {
+                const err = await response.json();
+                showNotification(`Error: ${err.error}`, 'error');
+            }
+            renderFiles(currentParentId); // Refresh the view
+        };
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                finalize();
+            } else if (e.key === 'Escape') {
+                fileEl.remove();
+            }
+        });
+        input.addEventListener('blur', finalize);
+    }
+
 
     uploadBtn.addEventListener('click', () => {
         const fileInput = document.createElement('input');

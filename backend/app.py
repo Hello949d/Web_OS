@@ -470,28 +470,30 @@ def new_text_file():
     user_id = session['user_id']
     data = request.get_json()
     parent_id = data.get('parent_id')
+    filename = data.get('filename') # Can be None
 
     conn = get_db_connection()
 
-    # Find a unique filename
-    base_name = "Untitled"
-    extension = ".txt"
-    filename = f"{base_name}{extension}"
-    counter = 1
+    if not filename:
+        # Find a unique filename if not provided
+        base_name = "Untitled"
+        extension = ".txt"
+        filename = f"{base_name}{extension}"
+        counter = 1
 
-    # Build query to check for existing file
-    query = 'SELECT 1 FROM files WHERE user_id = ? AND filename = ? AND '
-    params = [user_id, filename]
-    if parent_id is None:
-        query += 'parent_id IS NULL'
-    else:
-        query += 'parent_id = ?'
-        params.append(parent_id)
+        # Build query to check for existing file
+        query = 'SELECT 1 FROM files WHERE user_id = ? AND filename = ? AND '
+        params = [user_id, filename]
+        if parent_id is None:
+            query += 'parent_id IS NULL'
+        else:
+            query += 'parent_id = ?'
+            params.append(parent_id)
 
-    while conn.execute(query, tuple(params)).fetchone():
-        filename = f"{base_name} ({counter}){extension}"
-        params[1] = filename # Update filename in params
-        counter += 1
+        while conn.execute(query, tuple(params)).fetchone():
+            filename = f"{base_name} ({counter}){extension}"
+            params[1] = filename # Update filename in params
+            counter += 1
 
     # Create the empty physical file and the DB record
     cursor = conn.cursor()
