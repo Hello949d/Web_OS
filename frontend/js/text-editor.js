@@ -1,6 +1,11 @@
+// A variable to track new file windows to give them unique IDs
+let newFileCounter = 0;
+
 function initTextEditor(fileId, fileName) {
-    const appId = `text-editor-${fileId}`;
-    const title = `${fileName} - Text Editor`;
+    // If fileId is null, it's a new file. Generate a temporary, unique ID.
+    const isNewFile = fileId === null;
+    const appId = isNewFile ? `text-editor-new-${newFileCounter++}` : `text-editor-${fileId}`;
+    const title = isNewFile ? 'Untitled - Text Editor' : `${fileName} - Text Editor`;
 
     // Create a new window for the text editor
     const windowBody = createWindow(appId, title, '', { width: 500, height: 600 });
@@ -21,11 +26,20 @@ function initTextEditor(fileId, fileName) {
 
     const textarea = windowBody.querySelector('textarea');
     const saveBtn = windowBody.querySelector('.save-btn');
+    const windowEl = windowBody.closest('.app-window'); // Get the top-level window element
+
+    // --- State ---
+    let currentFileId = fileId;
+    let currentFileName = fileName;
 
     // --- Load File Content ---
     async function loadContent() {
+        if (isNewFile) {
+            textarea.value = ''; // Start with a blank slate
+            return;
+        }
         try {
-            const response = await fetch(`/api/files/content/${fileId}`, { credentials: 'include' });
+            const response = await fetch(`/api/files/content/${currentFileId}`, { credentials: 'include' });
             if (!response.ok) throw new Error('Failed to load file content.');
             const data = await response.json();
             textarea.value = data.content;
@@ -38,16 +52,44 @@ function initTextEditor(fileId, fileName) {
 
     // --- Save File Content ---
     saveBtn.addEventListener('click', async () => {
+        const content = textarea.value;
+
         try {
-            const response = await fetch(`/api/files/content/${fileId}`, {
+            if (currentFileId === null) {
+                // This is a new file, create it first
+                const createResponse = await fetch('/api/files/new_text_file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ parent_id: null }) // Save to root for now
+                });
+                if (!createResponse.ok) throw new Error('Failed to create file entry.');
+                const newFileData = await createResponse.json();
+
+                // Now we have an ID and a filename
+                currentFileId = newFileData.id;
+                currentFileName = newFileData.filename;
+
+                // Update window title
+                const titleEl = windowEl.querySelector('.window-title');
+                if (titleEl) {
+                    titleEl.textContent = `${currentFileName} - Text Editor`;
+                }
+                // We should also update the appId in the global openWindows object, but we can't.
+                // This means the user could open the same file twice. Acceptable for now.
+            }
+
+            // Now, save the content to the (possibly new) file ID
+            const saveResponse = await fetch(`/api/files/content/${currentFileId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ content: textarea.value })
+                body: JSON.stringify({ content: content })
             });
-            if (!response.ok) throw new Error('Failed to save file.');
+            if (!saveResponse.ok) throw new Error('Failed to save file content.');
 
             showNotification('File saved successfully!', 'success');
+
         } catch (error) {
             console.error('Error saving file:', error);
             showNotification(`Error: ${error.message}`, 'error');

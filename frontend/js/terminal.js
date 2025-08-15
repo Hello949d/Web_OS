@@ -1,8 +1,4 @@
-function initTerminal() {
-    const appId = 'terminal';
-    const title = 'Terminal';
-
-    const windowBody = createWindow(appId, title, '', { width: 550, height: 350 });
+function initTerminal(windowBody) {
     if (!windowBody) return;
 
     let cwd_id = null;

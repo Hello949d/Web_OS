@@ -1,8 +1,4 @@
-function initCalculator() {
-    const appId = 'calculator';
-    const title = 'Calculator';
-
-    const windowBody = createWindow(appId, title, '', { width: 300, height: 450 });
+function initCalculator(windowBody) {
     if (!windowBody) return;
 
     let displayValue = '0';

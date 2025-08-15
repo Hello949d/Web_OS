@@ -45,31 +45,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- App Launching ---
-    desktopIcons.addEventListener('click', (e) => {
+    desktopIcons.addEventListener('dblclick', (e) => {
         const icon = e.target.closest('.desktop-icon');
-        if (icon) {
-            const appName = icon.dataset.app;
-            const appTitle = icon.querySelector('span').textContent;
+        if (!icon) return;
 
-            let windowBody;
-            // Create the window, get the body element back
-            if (appName === 'file-manager') {
+        const appName = icon.dataset.app;
+        const appTitle = icon.querySelector('span').textContent;
+        let windowBody;
+
+        // Create the window with specific options for each app
+        switch (appName) {
+            case 'file-manager':
                 windowBody = createWindow(appName, appTitle, '', { width: 600, height: 400 });
-            } else {
-                windowBody = createWindow(appName, appTitle, ''); // Create with empty content
-            }
-
-            if (windowBody) {
-                // Launch the specific app
-                if (appName === 'file-manager') {
-                    // This function is defined in file-manager.js
-                    initFileManager(windowBody);
-                } else if (appName === 'terminal') {
-                    initTerminal();
-                } else if (appName === 'calculator') {
-                    initCalculator();
-                }
-            }
+                if (windowBody) initFileManager(windowBody);
+                break;
+            case 'terminal':
+                windowBody = createWindow(appName, appTitle, '', { width: 550, height: 350 });
+                if (windowBody) initTerminal(windowBody);
+                break;
+            case 'calculator':
+                windowBody = createWindow(appName, appTitle, '', { width: 300, height: 450 });
+                if (windowBody) initCalculator(windowBody);
+                break;
+            case 'text-editor':
+                // For launching from the desktop, it's always a new file.
+                // The initTextEditor function will handle the null fileId.
+                initTextEditor(null, 'Untitled');
+                break;
+            // Add other apps here
         }
     });
 });
