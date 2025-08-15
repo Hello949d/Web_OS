@@ -1,0 +1,91 @@
+/* Tab and Address Bar Styles */
+#tab-bar {
+    flex-shrink: 0;
+}
+
+.tab {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background-color: #e5e7eb; /* gray-200 */
+    border-right: 1px solid #9ca3af; /* gray-400 */
+    cursor: pointer;
+    position: relative;
+}
+
+.tab.active {
+    background-color: #f3f4f6; /* gray-100 */
+}
+
+.tab:hover {
+    background-color: #d1d5db; /* gray-300 */
+}
+
+.tab-title {
+    flex-grow: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 8px;
+}
+
+.close-tab-btn {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-weight: bold;
+    padding: 2px 5px;
+    border-radius: 50%;
+}
+
+.close-tab-btn:hover {
+    background-color: #ef4444; /* red-500 */
+    color: white;
+}
+
+#new-tab-btn {
+    padding: 8px 12px;
+    background-color: #d1d5db; /* gray-300 */
+    border: none;
+    cursor: pointer;
+    font-size: 1.2em;
+}
+
+#new-tab-btn:hover {
+    background-color: #9ca3af; /* gray-400 */
+}
+
+.address-bar, .search-bar {
+    border: 1px solid #ccc;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.browser-view {
+    position: relative;
+    flex-grow: 1;
+}
+
+.browser-iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.loading-overlay p {
+    color: white;
+    font-size: 1.2em;
+}
