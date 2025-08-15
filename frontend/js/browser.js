@@ -2,13 +2,13 @@ function createBrowserWindow() {
     const appId = 'browser';
     const title = 'Browser';
     const content = `
-        <div class="w-full h-full flex flex-col">
+        <div class="w-full h-full flex flex-col bg-gray-800">
             <div class="bg-gray-700 p-1 flex items-center">
-                <input type="text" class="address-bar flex-grow bg-gray-800 text-white rounded px-2 py-1" placeholder="https://...">
+                <input type="text" class="address-bar flex-grow bg-gray-900 text-white rounded px-2 py-1" placeholder="https://...">
                 <button class="go-btn bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-3 rounded ml-1">Go</button>
             </div>
-            <div class="browser-view flex-grow bg-black relative" style="image-rendering: pixelated;">
-                <img class="screenshot w-full h-full object-contain">
+            <div class="browser-view flex-grow relative">
+                <iframe class="browser-iframe w-full h-full border-0"></iframe>
                 <div class="loading-overlay hidden absolute inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center">
                     <p class="text-white">Loading...</p>
                 </div>
@@ -21,111 +21,74 @@ function createBrowserWindow() {
 
     const addressBar = winBody.querySelector('.address-bar');
     const goBtn = winBody.querySelector('.go-btn');
-    const screenshotImg = winBody.querySelector('.screenshot');
-    const browserView = winBody.querySelector('.browser-view');
+    const browserIframe = winBody.querySelector('.browser-iframe');
     const loadingOverlay = winBody.querySelector('.loading-overlay');
 
     let sessionId = null;
-    let refreshInterval = null;
 
     async function initBrowser() {
         try {
             const response = await fetch('/api/browser', { method: 'POST', credentials: 'include' });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Failed to start browser session');
+            }
             const data = await response.json();
             sessionId = data.session_id;
-            startScreenshotLoop();
         } catch (error) {
             console.error('Failed to start browser session:', error);
+            // Optionally, display an error in the UI
+            showNotification(`Error: ${error.message}`, 'error');
+            winBody.parentElement.remove(); // Close the window
         }
     }
 
     async function navigate() {
         if (!sessionId) return;
-        const url = addressBar.value;
+        let url = addressBar.value.trim();
+        if (!url) return;
+
+        // Basic check if it's a valid URL or a search term
+        if (!url.match(/^https?:\/\//)) {
+            // Check if it looks like a domain name
+            if (url.includes('.') && !url.includes(' ')) {
+                url = 'https://' + url;
+            } else {
+                // Assume it's a search query
+                url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+            }
+        }
+
+        addressBar.value = url; // Update address bar with the full URL
         loadingOverlay.classList.remove('hidden');
+        browserIframe.src = 'about:blank'; // Clear previous page
+
         try {
+            // First, navigate the headless browser
             await fetch(`/api/browser/${sessionId}/navigate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url }),
                 credentials: 'include'
             });
-            // Don't wait for refresh, it will come from the loop
+
+            // Then, set the iframe source to our proxy
+            browserIframe.src = `/api/browser/${sessionId}/view?url=${encodeURIComponent(url)}`;
+
+            browserIframe.onload = () => {
+                loadingOverlay.classList.add('hidden');
+            };
+            browserIframe.onerror = () => {
+                loadingOverlay.classList.add('hidden');
+                showNotification('Failed to load page content.', 'error');
+            }
+
         } catch (error) {
             console.error('Navigation failed:', error);
-        } finally {
-            // The loading overlay will be hidden once a new screenshot arrives
-        }
-    }
-
-    async function refreshScreenshot() {
-        if (!sessionId || !document.body.contains(winBody)) {
-            stopScreenshotLoop();
-            return;
-        }
-        try {
-            const response = await fetch(`/api/browser/${sessionId}/screenshot`, { credentials: 'include' });
-            if (!response.ok) throw new Error('Screenshot request failed');
-            const data = await response.json();
-            if (data.screenshot) {
-                screenshotImg.src = `data:image/png;base64,${data.screenshot}`;
-                loadingOverlay.classList.add('hidden');
-            }
-        } catch (error) {
-            console.error('Failed to refresh screenshot:', error);
-            stopScreenshotLoop();
-        }
-    }
-
-    function startScreenshotLoop() {
-        stopScreenshotLoop(); // Ensure no multiple loops
-        refreshInterval = setInterval(refreshScreenshot, 1500); // Refresh every 1.5 seconds
-    }
-
-    function stopScreenshotLoop() {
-        if (refreshInterval) clearInterval(refreshInterval);
-        refreshInterval = null;
-    }
-
-    browserView.addEventListener('click', async (e) => {
-        if (!sessionId) return;
-        const rect = screenshotImg.getBoundingClientRect();
-        const scaleX = screenshotImg.naturalWidth / rect.width;
-        const scaleY = screenshotImg.naturalHeight / rect.height;
-
-        const x = (e.clientX - rect.left) * scaleX;
-        const y = (e.clientY - rect.top) * scaleY;
-
-        loadingOverlay.classList.remove('hidden');
-        try {
-            await fetch(`/api/browser/${sessionId}/click`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ x, y }),
-                credentials: 'include'
-            });
-            setTimeout(refreshScreenshot, 250); // Eager refresh
-        } catch (error) {
-            console.error('Click failed:', error);
             loadingOverlay.classList.add('hidden');
+            showNotification('Navigation failed.', 'error');
         }
-    });
-
-    winBody.parentElement.addEventListener('keydown', async (e) => {
-        if (!sessionId || document.activeElement === addressBar) return;
-
-        e.preventDefault();
-        try {
-            await fetch(`/api/browser/${sessionId}/type`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: e.key }),
-                credentials: 'include'
-            });
-        } catch (error) {
-            console.error('Type failed:', error);
-        }
-    });
+    }
 
     goBtn.addEventListener('click', navigate);
     addressBar.addEventListener('keydown', (e) => {
@@ -137,13 +100,17 @@ function createBrowserWindow() {
         if (!document.body.contains(win)) {
             if (sessionId) {
                 // Use keepalive to ensure the request is sent on page close
-                navigator.sendBeacon(`/api/browser/${sessionId}`, '');
+                navigator.sendBeacon(`/api/browser/${sessionId}`, JSON.stringify({}), {
+                    type: 'application/json',
+                    keepalive: true
+                });
             }
-            stopScreenshotLoop();
             observer.disconnect();
         }
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
+    // Set an initial blank page
+    browserIframe.src = 'about:blank';
     initBrowser();
 }
