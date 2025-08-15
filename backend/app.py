@@ -634,6 +634,44 @@ def browser_scroll(session_id):
     return jsonify({'error': 'Session not found'}), 404
 
 
+@app.route('/api/browser/<session_id>/view')
+@login_required
+def browser_view(session_id):
+    url = request.args.get('url')
+    if not url:
+        return "URL parameter is required.", 400
+
+    if session_id not in browser_sessions:
+        return "Session not found.", 404
+
+    try:
+        headers = {
+            'User-Agent': request.headers.get('User-Agent'),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': url,
+        }
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+
+        # Inject a <base> tag to handle relative URLs
+        content = response.text
+        parsed_url = urlparse(url)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+
+        # A simple way to inject base tag. This might fail on complex HTML.
+        if '<head>' in content:
+            content = content.replace('<head>', f'<head><base href="{base_url}">')
+        else:
+            # Fallback for documents without a <head> tag
+            content = f'<head><base href="{base_url}"></head>' + content
+
+        return content, response.status_code, {'Content-Type': response.headers.get('content-type')}
+
+    except requests.exceptions.RequestException as e:
+        return f"Failed to fetch URL: {e}", 500
+
+
 @app.route('/api/files/new_text_file', methods=['POST'])
 @login_required
 def new_text_file():
