@@ -8,12 +8,19 @@
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style type="text/tailwindcss">
+        #desktop-icons {
+            @apply relative w-full h-full;
+        }
         .desktop-icon {
-            @apply flex flex-col items-center justify-center text-center w-24 h-24 p-2 m-2 rounded-lg cursor-pointer hover:bg-white hover:bg-opacity-20;
+            @apply absolute text-center w-24 h-24 p-2 rounded-lg cursor-pointer hover:bg-white hover:bg-opacity-20;
             text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
         }
         .desktop-icon i {
             @apply mb-2;
+        }
+        /* Override for file manager icons to be part of the flex layout */
+        #fm-file-view .desktop-icon {
+            @apply relative flex flex-col items-center justify-center;
         }
         .desktop-icon span {
             @apply text-sm;
@@ -58,7 +65,7 @@
     <!-- Desktop -->
     <main id="desktop" class="w-full h-screen bg-cover bg-center" style="background-image: url('/assets/wallpapers/default.jpg');">
         <!-- Desktop Icons -->
-        <div id="desktop-icons" class="p-4">
+        <div id="desktop-icons">
             <div class="desktop-icon" data-app="file-manager">
                 <i class="fas fa-folder fa-3x"></i>
                 <span>File Manager</span>
@@ -106,6 +113,7 @@
     </footer>
 
     <!-- Scripts -->
+    <script src="/js/context-menu.js"></script>
     <script src="/js/windows.js"></script>
     <script src="/js/file-manager.js"></script>
     <script src="/js/text-editor.js"></script>
