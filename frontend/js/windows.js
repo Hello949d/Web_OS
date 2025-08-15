@@ -2,9 +2,16 @@ let zIndexCounter = 100;
 const openWindows = {};
 
 function createWindow(appId, title, content, options = {}) {
-    // If window already exists, focus it and return null
+    // If window already exists, handle it
     if (openWindows[appId]) {
-        focusWindow(openWindows[appId]);
+        const win = openWindows[appId];
+        if (win.style.display === 'none') {
+            // It's minimized, so restore it
+            restoreWindow(win, appId);
+        } else {
+            // It's open, so just focus it
+            focusWindow(win);
+        }
         return null;
     }
 
@@ -49,6 +56,18 @@ function createWindow(appId, title, content, options = {}) {
     win.querySelector('.close-btn').addEventListener('click', () => {
         win.remove();
         delete openWindows[appId];
+        const taskbarIcon = document.querySelector(`.taskbar-app[data-app-id="${appId}"]`);
+        if (taskbarIcon) {
+            taskbarIcon.remove();
+        }
+    });
+
+    win.querySelector('.maximize-btn').addEventListener('click', () => {
+        toggleMaximize(win);
+    });
+
+    win.querySelector('.minimize-btn').addEventListener('click', () => {
+        minimizeWindow(win, appId, title);
     });
 
     // Focus on creation and on click
@@ -63,12 +82,72 @@ function focusWindow(win) {
     win.style.zIndex = zIndexCounter++;
 }
 
+function toggleMaximize(win) {
+    const taskbar = document.getElementById('taskbar');
+    const taskbarHeight = taskbar.offsetHeight;
+
+    if (win.dataset.maximized === 'true') {
+        // Restore
+        win.style.width = win.dataset.originalWidth;
+        win.style.height = win.dataset.originalHeight;
+        win.style.top = win.dataset.originalTop;
+        win.style.left = win.dataset.originalLeft;
+        win.dataset.maximized = 'false';
+        // Make resizable again
+        win.querySelectorAll('.resizer').forEach(r => r.style.display = 'block');
+    } else {
+        // Maximize
+        win.dataset.originalWidth = win.style.width || getComputedStyle(win).width;
+        win.dataset.originalHeight = win.style.height || getComputedStyle(win).height;
+        win.dataset.originalTop = win.style.top || getComputedStyle(win).top;
+        win.dataset.originalLeft = win.style.left || getComputedStyle(win).left;
+
+        win.style.width = '100vw';
+        win.style.height = `calc(100vh - ${taskbarHeight}px)`;
+        win.style.top = '0';
+        win.style.left = '0';
+        win.dataset.maximized = 'true';
+        // Disable resizing when maximized
+        win.querySelectorAll('.resizer').forEach(r => r.style.display = 'none');
+    }
+}
+
+function minimizeWindow(win, appId, title) {
+    win.style.display = 'none';
+
+    const taskbar = document.getElementById('running-apps');
+    let taskbarIcon = taskbar.querySelector(`[data-app-id="${appId}"]`);
+    if (!taskbarIcon) {
+        taskbarIcon = document.createElement('div');
+        taskbarIcon.className = 'taskbar-app';
+        taskbarIcon.dataset.appId = appId;
+        taskbarIcon.innerHTML = `<i class="fas fa-window-maximize"></i><span>${title}</span>`; // Generic icon
+        taskbar.appendChild(taskbarIcon);
+
+        taskbarIcon.addEventListener('click', () => {
+            if (win.style.display !== 'none') {
+                win.style.display = 'none';
+            } else {
+                restoreWindow(win, appId);
+            }
+        });
+    }
+}
+
+function restoreWindow(win, appId) {
+    win.style.display = 'flex';
+    focusWindow(win);
+}
+
 function makeDraggable(win) {
     const header = win.querySelector('.window-header');
     let isDragging = false;
     let offsetX, offsetY;
 
     header.addEventListener('mousedown', (e) => {
+        if (win.dataset.maximized === 'true') {
+            return;
+        }
         isDragging = true;
         offsetX = e.clientX - win.offsetLeft;
         offsetY = e.clientY - win.offsetTop;

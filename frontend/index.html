@@ -58,6 +58,12 @@
         .resizer.bottom { bottom: -5px; left: 5px; right: 5px; height: 10px; cursor: ns-resize; }
         .resizer.left { top: 5px; bottom: 5px; left: -5px; width: 10px; cursor: ew-resize; }
         .resizer.right { top: 5px; bottom: 5px; right: -5px; width: 10px; cursor: ew-resize; }
+        .taskbar-app {
+            @apply flex items-center px-3 py-1 mx-1 bg-gray-700 rounded hover:bg-gray-600 cursor-pointer;
+        }
+        .taskbar-app span {
+            @apply ml-2;
+        }
     </style>
 </head>
 <body class="bg-gray-800 text-white overflow-hidden">
@@ -81,6 +87,10 @@
             <div class="desktop-icon" data-app="calculator">
                 <i class="fas fa-calculator fa-3x"></i>
                 <span>Calculator</span>
+            </div>
+            <div class="desktop-icon" data-app="browser">
+                <i class="fas fa-globe fa-3x"></i>
+                <span>Browser</span>
             </div>
             <!-- Add more icons as apps are developed -->
         </div>
@@ -121,6 +131,7 @@
     <script src="/js/terminal.js"></script>
     <script src="/js/settings.js"></script>
     <script src="/js/calculator.js"></script>
+    <script src="/js/browser.js"></script>
     <script src="/js/notifications.js"></script>
     <script src="/js/desktop.js"></script>
     <script>

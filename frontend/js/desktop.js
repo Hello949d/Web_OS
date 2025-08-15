@@ -236,6 +236,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 // The initTextEditor function will handle the null fileId.
                 initTextEditor(null, 'Untitled');
                 break;
+            case 'browser':
+                createBrowserWindow();
+                break;
             // Add other apps here
         }
     });
