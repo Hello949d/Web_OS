@@ -5,35 +5,95 @@ function initCalculator() {
     const windowBody = createWindow(appId, title, '', { width: 300, height: 450 });
     if (!windowBody) return;
 
-    let currentInput = '0';
+    let displayValue = '0';
+    let firstOperand = null;
+    let waitingForSecondOperand = false;
     let operator = null;
-    let previousInput = null;
+
+    function updateDisplay() {
+        const display = windowBody.querySelector('#calc-display');
+        display.textContent = displayValue;
+    }
+
+    function inputDigit(digit) {
+        if (waitingForSecondOperand) {
+            displayValue = digit;
+            waitingForSecondOperand = false;
+        } else {
+            displayValue = displayValue === '0' ? digit : displayValue + digit;
+        }
+        updateDisplay();
+    }
+
+    function inputDecimal() {
+        if (!displayValue.includes('.')) {
+            displayValue += '.';
+        }
+        updateDisplay();
+    }
+
+    function handleOperator(nextOperator) {
+        const inputValue = parseFloat(displayValue);
+
+        if (operator && waitingForSecondOperand) {
+            operator = nextOperator;
+            return;
+        }
+
+        if (firstOperand === null) {
+            firstOperand = inputValue;
+        } else if (operator) {
+            const result = performCalculation[operator](firstOperand, inputValue);
+            displayValue = String(parseFloat(result.toPrecision(10)));
+            firstOperand = result;
+        }
+
+        waitingForSecondOperand = true;
+        operator = nextOperator;
+        updateDisplay();
+    }
+
+    const performCalculation = {
+        '/': (first, second) => first / second,
+        '*': (first, second) => first * second,
+        '+': (first, second) => first + second,
+        '-': (first, second) => first - second,
+        '=': (first, second) => second,
+    };
+
+    function resetCalculator() {
+        displayValue = '0';
+        firstOperand = null;
+        waitingForSecondOperand = false;
+        operator = null;
+        updateDisplay();
+    }
 
     // --- UI Setup ---
     windowBody.style.padding = '0';
     windowBody.innerHTML = `
         <div class="calculator h-full flex flex-col bg-gray-800">
-            <div id="calc-display" class="display bg-gray-900 text-white text-4xl text-right p-4">0</div>
+            <div id="calc-display" class="display bg-gray-900 text-white text-4xl text-right p-4 font-light">${displayValue}</div>
             <div class="buttons grid grid-cols-4 gap-px bg-gray-700 flex-grow">
-                <button class="btn-op p-4 text-2xl" data-action="clear">AC</button>
-                <button class="btn-op p-4 text-2xl" data-action="negate">+/-</button>
-                <button class="btn-op p-4 text-2xl" data-action="percent">%</button>
-                <button class="btn-op-main p-4 text-2xl" data-action="divide">÷</button>
-                <button class="btn-num p-4 text-2xl">7</button>
-                <button class="btn-num p-4 text-2xl">8</button>
-                <button class="btn-num p-4 text-2xl">9</button>
-                <button class="btn-op-main p-4 text-2xl" data-action="multiply">×</button>
-                <button class="btn-num p-4 text-2xl">4</button>
-                <button class="btn-num p-4 text-2xl">5</button>
-                <button class="btn-num p-4 text-2xl">6</button>
-                <button class="btn-op-main p-4 text-2xl" data-action="subtract">−</button>
-                <button class="btn-num p-4 text-2xl">1</button>
-                <button class="btn-num p-4 text-2xl">2</button>
-                <button class="btn-num p-4 text-2xl">3</button>
-                <button class="btn-op-main p-4 text-2xl" data-action="add">+</button>
-                <button class="btn-num p-4 text-2xl col-span-2">0</button>
-                <button class="btn-num p-4 text-2xl" data-action="decimal">.</button>
-                <button class="btn-op-main p-4 text-2xl" data-action="equals">=</button>
+                <button class="btn-op p-4 text-2xl" data-key="clear">AC</button>
+                <button class="btn-op p-4 text-2xl" data-key="negate">+/-</button>
+                <button class="btn-op p-4 text-2xl" data-key="percent">%</button>
+                <button class="btn-op-main p-4 text-2xl" data-key="/">÷</button>
+                <button class="btn-num p-4 text-2xl" data-key="7">7</button>
+                <button class="btn-num p-4 text-2xl" data-key="8">8</button>
+                <button class="btn-num p-4 text-2xl" data-key="9">9</button>
+                <button class="btn-op-main p-4 text-2xl" data-key="*">×</button>
+                <button class="btn-num p-4 text-2xl" data-key="4">4</button>
+                <button class="btn-num p-4 text-2xl" data-key="5">5</button>
+                <button class="btn-num p-4 text-2xl" data-key="6">6</button>
+                <button class="btn-op-main p-4 text-2xl" data-key="-">−</button>
+                <button class="btn-num p-4 text-2xl" data-key="1">1</button>
+                <button class="btn-num p-4 text-2xl" data-key="2">2</button>
+                <button class="btn-num p-4 text-2xl" data-key="3">3</button>
+                <button class="btn-op-main p-4 text-2xl" data-key="+">+</button>
+                <button class="btn-num p-4 text-2xl col-span-2" data-key="0">0</button>
+                <button class="btn-num p-4 text-2xl" data-key=".">.</button>
+                <button class="btn-op-main p-4 text-2xl" data-key="=">=</button>
             </div>
         </div>
         <style>
@@ -43,38 +103,37 @@ function initCalculator() {
         </style>
     `;
 
-    const display = windowBody.querySelector('#calc-display');
     const buttons = windowBody.querySelector('.buttons');
-
     buttons.addEventListener('click', (e) => {
-        const key = e.target;
-        const action = key.dataset.action;
-        const keyContent = key.textContent.trim();
+        const { target } = e;
+        if (!target.matches('button')) return;
 
-        if (!action) { // It's a number
-            if (display.textContent === '0') {
-                display.textContent = keyContent;
-            } else {
-                display.textContent += keyContent;
-            }
-        } else if (action === 'decimal') {
-            if (!display.textContent.includes('.')) {
-                display.textContent += '.';
-            }
-        } else if (action === 'clear') {
-            display.textContent = '0';
-        } else if (action === 'equals') {
-            try {
-                // Replace display symbols with JS operators
-                let expression = display.textContent.replace(/×/g, '*').replace(/÷/g, '/');
-                // Use eval for simplicity. Be cautious with eval in real-world apps.
-                let result = eval(expression);
-                display.textContent = parseFloat(result.toPrecision(10));
-            } catch (error) {
-                display.textContent = 'Error';
-            }
-        } else { // It's an operator
-            display.textContent += ` ${keyContent} `;
+        const key = target.dataset.key;
+
+        if (/\d/.test(key)) {
+            inputDigit(key);
+            return;
+        }
+        if (key === '.') {
+            inputDecimal();
+            return;
+        }
+        if (['+', '-', '*', '/','='].includes(key)) {
+            handleOperator(key);
+            return;
+        }
+        if (key === 'clear') {
+            resetCalculator();
+            return;
+        }
+        if (key === 'negate') {
+            displayValue = String(parseFloat(displayValue) * -1);
+            updateDisplay();
+            return;
+        }
+        if (key === 'percent') {
+            displayValue = String(parseFloat(displayValue) / 100);
+            updateDisplay();
         }
     });
 }

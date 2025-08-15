@@ -386,29 +386,44 @@ def execute_command():
                     new_cwd = {'id': target_id, 'name': new_name}
                 output = f"Changed directory to {new_cwd['name']}"
     elif command == 'cat':
-         if not args:
-            output = 'Usage: cat <filename>'
-         else:
-            filename = args[0]
-            # Find file in current directory
-            query = 'SELECT id FROM files WHERE user_id = ? AND filename = ? AND is_folder = 0 AND '
-            params = [user_id, filename]
-            if cwd_id is None: query += 'parent_id IS NULL'
-            else:
-                query += 'parent_id = ?'
-                params.append(cwd_id)
+        if not args:
+            output = 'Usage: cat <path/to/filename>'
+        else:
+            path = args[0]
+            target_dir_id = cwd_id
+            filename = path
 
-            file_to_cat = conn.execute(query, tuple(params)).fetchone()
-            if not file_to_cat:
-                output = f"cat: {filename}: No such file"
+            if '/' in path:
+                path_parts = path.rsplit('/', 1)
+                dir_path, filename = path_parts[0], path_parts[1]
+                if dir_path: # Handle cases like 'folder/file.txt' but not '/file.txt' from root
+                    target_dir_id = resolve_path(conn, user_id, cwd_id, dir_path)
+                else: # Path starts with '/', treat as absolute from user's root
+                    target_dir_id = None
+
+            if target_dir_id == 'not_found':
+                output = f"cat: {path}: No such file or directory"
             else:
-                # Reuse get_file_content logic, but simplified
-                file_info = conn.execute('SELECT file_path FROM files WHERE id = ?', (file_to_cat['id'],)).fetchone()
-                try:
-                    with open(file_info['file_path'], 'r', encoding='utf-8') as f:
-                        output = f.read()
-                except Exception:
-                    output = f"cat: {filename}: Cannot read file"
+                query = 'SELECT id, file_path, is_folder FROM files WHERE user_id = ? AND filename = ? AND '
+                params = [user_id, filename]
+                if target_dir_id is None:
+                    query += 'parent_id IS NULL'
+                else:
+                    query += 'parent_id = ?'
+                    params.append(target_dir_id)
+
+                file_to_cat = conn.execute(query, tuple(params)).fetchone()
+
+                if not file_to_cat:
+                    output = f"cat: {path}: No such file or directory"
+                elif file_to_cat['is_folder']:
+                    output = f"cat: {filename}: Is a directory"
+                else:
+                    try:
+                        with open(file_to_cat['file_path'], 'r', encoding='utf-8') as f:
+                            output = f.read()
+                    except Exception:
+                        output = f"cat: {filename}: Cannot read file"
     else:
         output = f'{command}: command not found'
 

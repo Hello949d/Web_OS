@@ -48,7 +48,14 @@ function initFileManager(container) {
 
         const parentIdQuery = parentId === null ? 'null' : parentId;
         try {
-            const response = await fetch(`/api/files?parent_id=${parentIdQuery}`, { credentials: 'include' });
+            const response = await fetch(`/api/files?parent_id=${parentIdQuery}`, {
+                credentials: 'include',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            });
             if (!response.ok) throw new Error('Failed to fetch files');
             const files = await response.json();
 
@@ -113,7 +120,7 @@ function initFileManager(container) {
     newFolderBtn.addEventListener('click', async () => {
         const folderName = prompt('Enter new folder name:');
         if (folderName) {
-            await fetch('/api/files/folder', {
+            const response = await fetch('/api/files/folder', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -189,7 +196,7 @@ function initFileManager(container) {
             case 'rename':
                 const newName = prompt('Enter new name:');
                 if (newName) {
-                    await fetch(`/api/files/rename/${contextFile.id}`, {
+                    const response = await fetch(`/api/files/rename/${contextFile.id}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'include',
