@@ -13,7 +13,9 @@ import base64
 from io import BytesIO
 import threading
 import requests
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote
+from bs4 import BeautifulSoup
+import uuid
 
 # --- App Initialization and Configuration ---
 static_folder_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
@@ -503,17 +505,25 @@ def browser_new_session():
     session_id = str(user_id)
 
     if session_id in browser_sessions:
-        return jsonify({'session_id': session_id, 'message': 'Session already exists.'})
+        # If session exists, just return the existing info
+        first_page_id = next(iter(browser_sessions[session_id]['pages']))
+        return jsonify({'session_id': session_id, 'page_id': first_page_id, 'message': 'Session already exists.'})
 
     async def _create_session():
         browser = await playwright.chromium.launch()
         context = await browser.new_context()
         page = await context.new_page()
-        browser_sessions[session_id] = {'browser': browser, 'context': context, 'page': page, 'playwright': playwright}
+        page_id = str(uuid.uuid4())
+        browser_sessions[session_id] = {
+            'browser': browser,
+            'context': context,
+            'pages': {page_id: page}
+        }
+        return page_id
 
     future = asyncio.run_coroutine_threadsafe(_create_session(), loop)
-    future.result() # Wait for the session to be created
-    return jsonify({'session_id': session_id})
+    page_id = future.result()
+    return jsonify({'session_id': session_id, 'page_id': page_id})
 
 @app.route('/api/browser/<session_id>', methods=['DELETE'])
 @login_required
@@ -521,155 +531,160 @@ def browser_close_session(session_id):
     if session_id in browser_sessions:
         async def _close_session():
             session_data = browser_sessions.pop(session_id)
-            await session_data['context'].close()
-            await session_data['browser'].close()
+            await session_data['browser'].close() # Closing the browser closes all contexts and pages
 
         future = asyncio.run_coroutine_threadsafe(_close_session(), loop)
         future.result()
         return jsonify({'message': 'Browser session closed'})
     return jsonify({'error': 'Session not found'}), 404
 
-@app.route('/api/browser/<session_id>/navigate', methods=['POST'])
+@app.route('/api/browser/<session_id>/pages', methods=['POST'])
 @login_required
-def browser_navigate(session_id):
+def browser_new_page(session_id):
+    if session_id not in browser_sessions:
+        return jsonify({'error': 'Session not found'}), 404
+
+    async def _create_page():
+        context = browser_sessions[session_id]['context']
+        page = await context.new_page()
+        page_id = str(uuid.uuid4())
+        browser_sessions[session_id]['pages'][page_id] = page
+        return page_id
+
+    future = asyncio.run_coroutine_threadsafe(_create_page(), loop)
+    page_id = future.result()
+    return jsonify({'page_id': page_id})
+
+@app.route('/api/browser/<session_id>/pages/<page_id>', methods=['DELETE'])
+@login_required
+def browser_close_page(session_id, page_id):
+    if session_id not in browser_sessions or page_id not in browser_sessions[session_id]['pages']:
+        return jsonify({'error': 'Session or page not found'}), 404
+
+    async def _close_page():
+        page = browser_sessions[session_id]['pages'].pop(page_id)
+        await page.close()
+
+    future = asyncio.run_coroutine_threadsafe(_close_page(), loop)
+    future.result()
+
+    # Optional: close the entire browser if the last tab is closed
+    if not browser_sessions[session_id]['pages']:
+        return browser_close_session(session_id)
+
+    return jsonify({'message': 'Page closed'})
+
+@app.route('/api/browser/<session_id>/pages/<page_id>/navigate', methods=['POST'])
+@login_required
+def browser_navigate(session_id, page_id):
     url = request.json.get('url')
     if not url:
         return jsonify({'error': 'URL is required'}), 400
     if not url.startswith(('http://', 'https://')):
         url = 'http://' + url
 
-    if session_id in browser_sessions:
-        page = browser_sessions[session_id]['page']
+    if session_id in browser_sessions and page_id in browser_sessions[session_id]['pages']:
+        page = browser_sessions[session_id]['pages'][page_id]
         async def _navigate():
             try:
-                await page.goto(url, wait_until='networkidle')
-                return {'message': f'Navigated to {url}'}
+                await page.goto(url, wait_until='domcontentloaded', timeout=60000)
+                final_url = page.url
+                return {'message': f'Navigated to {url}', 'final_url': final_url}
             except Exception as e:
                 return {'error': f'Navigation failed: {e}'}
 
         future = asyncio.run_coroutine_threadsafe(_navigate(), loop)
         result = future.result()
         return jsonify(result)
-    return jsonify({'error': 'Session not found'}), 404
+    return jsonify({'error': 'Session or page not found'}), 404
 
-@app.route('/api/browser/<session_id>/screenshot', methods=['GET'])
+@app.route('/api/browser/<session_id>/pages/<page_id>/view')
 @login_required
-def browser_screenshot(session_id):
-    if session_id in browser_sessions:
-        page = browser_sessions[session_id]['page']
-        async def _screenshot():
-            try:
-                screenshot_bytes = await page.screenshot()
-                buffered = BytesIO(screenshot_bytes)
-                img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                return {'screenshot': img_str}
-            except Exception as e:
-                return {'error': f'Failed to take screenshot: {e}'}
+def browser_view(session_id, page_id):
+    if session_id not in browser_sessions or page_id not in browser_sessions[session_id]['pages']:
+        return "Session or page not found.", 404
 
-        future = asyncio.run_coroutine_threadsafe(_screenshot(), loop)
-        result = future.result()
-        return jsonify(result)
-    return jsonify({'error': 'Session not found'}), 404
+    page = browser_sessions[session_id]['pages'][page_id]
 
-@app.route('/api/browser/<session_id>/click', methods=['POST'])
+    async def _get_content():
+        try:
+            content = await page.content()
+            current_url = page.url
+            return {'content': content, 'url': current_url}
+        except Exception as e:
+            return {'error': str(e)}
+
+    future = asyncio.run_coroutine_threadsafe(_get_content(), loop)
+    result = future.result()
+
+    if 'error' in result:
+        return f"Failed to get page content: {result['error']}", 500
+
+    content = result['content']
+    base_url = result['url']
+    soup = BeautifulSoup(content, 'lxml')
+
+    base_tag = soup.new_tag('base', href=base_url)
+    post_message_script = soup.new_tag('script')
+    post_message_script.string = f"""
+        window.addEventListener('load', () => {{
+            if (window.parent && window.parent !== window) {{
+                window.parent.postMessage({{
+                    type: 'browser-url-change',
+                    url: '{base_url}',
+                    sessionId: '{session_id}',
+                    pageId: '{page_id}'
+                }}, '*');
+            }}
+        }});
+    """
+
+    if soup.head:
+        soup.head.insert(0, base_tag)
+        soup.head.append(post_message_script)
+    else:
+        head = soup.new_tag('head')
+        soup.insert(0, head)
+        head.append(base_tag)
+        head.append(post_message_script)
+
+    for tag in soup.find_all(['a', 'link'], href=True):
+        href = tag['href']
+        if href.startswith('javascript:'): continue
+        absolute_url = urljoin(base_url, href)
+        if not href.startswith('#'):
+            tag['href'] = f"/api/browser/{session_id}/pages/{page_id}/navigate_and_view?url={quote(absolute_url)}"
+
+    for form in soup.find_all('form', action=True):
+        action = form['action']
+        absolute_url = urljoin(base_url, action)
+        # This needs a dedicated form submission endpoint
+        # form['action'] = f"/api/browser/{session_id}/pages/{page_id}/submit_form?url={quote(absolute_url)}"
+
+    return str(soup), 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+@app.route('/api/browser/<session_id>/pages/<page_id>/navigate_and_view')
 @login_required
-def browser_click(session_id):
-    x = request.json.get('x')
-    y = request.json.get('y')
-    if x is None or y is None:
-        return jsonify({'error': 'Coordinates are required'}), 400
-
-    if session_id in browser_sessions:
-        page = browser_sessions[session_id]['page']
-        async def _click():
-            try:
-                await page.mouse.click(x, y)
-                await page.wait_for_timeout(500)
-                return {'message': 'Clicked at ({}, {})'.format(x, y)}
-            except Exception as e:
-                return {'error': f'Click failed: {e}'}
-
-        future = asyncio.run_coroutine_threadsafe(_click(), loop)
-        result = future.result()
-        return jsonify(result)
-    return jsonify({'error': 'Session not found'}), 404
-
-@app.route('/api/browser/<session_id>/type', methods=['POST'])
-@login_required
-def browser_type(session_id):
-    text = request.json.get('text')
-    if text is None:
-        return jsonify({'error': 'Text is required'}), 400
-
-    if session_id in browser_sessions:
-        page = browser_sessions[session_id]['page']
-        async def _type():
-            try:
-                await page.keyboard.type(text)
-                return {'message': 'Typed text'}
-            except Exception as e:
-                return {'error': f'Typing failed: {e}'}
-
-        future = asyncio.run_coroutine_threadsafe(_type(), loop)
-        result = future.result()
-        return jsonify(result)
-    return jsonify({'error': 'Session not found'}), 404
-
-@app.route('/api/browser/<session_id>/scroll', methods=['POST'])
-@login_required
-def browser_scroll(session_id):
-    delta_y = request.json.get('deltaY', 0)
-    if session_id in browser_sessions:
-        page = browser_sessions[session_id]['page']
-        async def _scroll():
-            try:
-                await page.mouse.wheel(0, delta_y)
-                return {'message': 'Scrolled'}
-            except Exception as e:
-                return {'error': f'Scroll failed: {e}'}
-
-        future = asyncio.run_coroutine_threadsafe(_scroll(), loop)
-        result = future.result()
-        return jsonify(result)
-    return jsonify({'error': 'Session not found'}), 404
-
-
-@app.route('/api/browser/<session_id>/view')
-@login_required
-def browser_view(session_id):
+def browser_navigate_and_view(session_id, page_id):
     url = request.args.get('url')
     if not url:
-        return "URL parameter is required.", 400
+        return "URL is required", 400
 
-    if session_id not in browser_sessions:
-        return "Session not found.", 404
+    if session_id not in browser_sessions or page_id not in browser_sessions[session_id]['pages']:
+        return "Session or page not found", 404
 
-    try:
-        headers = {
-            'User-Agent': request.headers.get('User-Agent'),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Referer': url,
-        }
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
+    page = browser_sessions[session_id]['pages'][page_id]
 
-        # Inject a <base> tag to handle relative URLs
-        content = response.text
-        parsed_url = urlparse(url)
-        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    async def _navigate():
+        try:
+            await page.goto(url, wait_until='domcontentloaded')
+        except Exception as e:
+            print(f"Navigation failed in navigate_and_view: {e}")
 
-        # A simple way to inject base tag. This might fail on complex HTML.
-        if '<head>' in content:
-            content = content.replace('<head>', f'<head><base href="{base_url}">')
-        else:
-            # Fallback for documents without a <head> tag
-            content = f'<head><base href="{base_url}"></head>' + content
+    future = asyncio.run_coroutine_threadsafe(_navigate(), loop)
+    future.result()
 
-        return content, response.status_code, {'Content-Type': response.headers.get('content-type')}
-
-    except requests.exceptions.RequestException as e:
-        return f"Failed to fetch URL: {e}", 500
+    return browser_view(session_id, page_id)
 
 
 @app.route('/api/files/new_text_file', methods=['POST'])

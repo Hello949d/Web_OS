@@ -5,3 +5,5 @@ Flask-Cors
 playwright
 hypercorn
 requests
+beautifulsoup4
+lxml
