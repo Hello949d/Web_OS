@@ -2,3 +2,5 @@ Flask
 Flask-Bcrypt
 Flask-Session
 Flask-Cors
+playwright
+hypercorn

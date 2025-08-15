@@ -7,6 +7,11 @@ from functools import wraps
 import os
 import sqlite3
 import json
+import asyncio
+from playwright.async_api import async_playwright
+import base64
+from io import BytesIO
+import threading
 
 # --- App Initialization and Configuration ---
 static_folder_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
@@ -464,6 +469,169 @@ def update_settings():
 
     return jsonify({'message': 'Settings updated successfully'})
 
+
+# --- Browser API Routes ---
+browser_sessions = {}
+playwright = None
+loop = None
+
+def run_event_loop(new_loop):
+    asyncio.set_event_loop(new_loop)
+    new_loop.run_forever()
+
+def start_event_loop_thread():
+    global loop
+    loop = asyncio.new_event_loop()
+    t = threading.Thread(target=run_event_loop, args=(loop,))
+    t.daemon = True
+    t.start()
+
+async def launch_playwright():
+    global playwright
+    playwright = await async_playwright().start()
+
+def start_playwright():
+    future = asyncio.run_coroutine_threadsafe(launch_playwright(), loop)
+    future.result()
+
+@app.route('/api/browser', methods=['POST'])
+@login_required
+def browser_new_session():
+    user_id = session['user_id']
+    session_id = str(user_id)
+
+    if session_id in browser_sessions:
+        return jsonify({'session_id': session_id, 'message': 'Session already exists.'})
+
+    async def _create_session():
+        browser = await playwright.chromium.launch()
+        context = await browser.new_context()
+        page = await context.new_page()
+        browser_sessions[session_id] = {'browser': browser, 'context': context, 'page': page, 'playwright': playwright}
+
+    future = asyncio.run_coroutine_threadsafe(_create_session(), loop)
+    future.result() # Wait for the session to be created
+    return jsonify({'session_id': session_id})
+
+@app.route('/api/browser/<session_id>', methods=['DELETE'])
+@login_required
+def browser_close_session(session_id):
+    if session_id in browser_sessions:
+        async def _close_session():
+            session_data = browser_sessions.pop(session_id)
+            await session_data['context'].close()
+            await session_data['browser'].close()
+
+        future = asyncio.run_coroutine_threadsafe(_close_session(), loop)
+        future.result()
+        return jsonify({'message': 'Browser session closed'})
+    return jsonify({'error': 'Session not found'}), 404
+
+@app.route('/api/browser/<session_id>/navigate', methods=['POST'])
+@login_required
+def browser_navigate(session_id):
+    url = request.json.get('url')
+    if not url:
+        return jsonify({'error': 'URL is required'}), 400
+    if not url.startswith(('http://', 'https://')):
+        url = 'http://' + url
+
+    if session_id in browser_sessions:
+        page = browser_sessions[session_id]['page']
+        async def _navigate():
+            try:
+                await page.goto(url, wait_until='networkidle')
+                return {'message': f'Navigated to {url}'}
+            except Exception as e:
+                return {'error': f'Navigation failed: {e}'}
+
+        future = asyncio.run_coroutine_threadsafe(_navigate(), loop)
+        result = future.result()
+        return jsonify(result)
+    return jsonify({'error': 'Session not found'}), 404
+
+@app.route('/api/browser/<session_id>/screenshot', methods=['GET'])
+@login_required
+def browser_screenshot(session_id):
+    if session_id in browser_sessions:
+        page = browser_sessions[session_id]['page']
+        async def _screenshot():
+            try:
+                screenshot_bytes = await page.screenshot()
+                buffered = BytesIO(screenshot_bytes)
+                img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                return {'screenshot': img_str}
+            except Exception as e:
+                return {'error': f'Failed to take screenshot: {e}'}
+
+        future = asyncio.run_coroutine_threadsafe(_screenshot(), loop)
+        result = future.result()
+        return jsonify(result)
+    return jsonify({'error': 'Session not found'}), 404
+
+@app.route('/api/browser/<session_id>/click', methods=['POST'])
+@login_required
+def browser_click(session_id):
+    x = request.json.get('x')
+    y = request.json.get('y')
+    if x is None or y is None:
+        return jsonify({'error': 'Coordinates are required'}), 400
+
+    if session_id in browser_sessions:
+        page = browser_sessions[session_id]['page']
+        async def _click():
+            try:
+                await page.mouse.click(x, y)
+                await page.wait_for_timeout(500)
+                return {'message': 'Clicked at ({}, {})'.format(x, y)}
+            except Exception as e:
+                return {'error': f'Click failed: {e}'}
+
+        future = asyncio.run_coroutine_threadsafe(_click(), loop)
+        result = future.result()
+        return jsonify(result)
+    return jsonify({'error': 'Session not found'}), 404
+
+@app.route('/api/browser/<session_id>/type', methods=['POST'])
+@login_required
+def browser_type(session_id):
+    text = request.json.get('text')
+    if text is None:
+        return jsonify({'error': 'Text is required'}), 400
+
+    if session_id in browser_sessions:
+        page = browser_sessions[session_id]['page']
+        async def _type():
+            try:
+                await page.keyboard.type(text)
+                return {'message': 'Typed text'}
+            except Exception as e:
+                return {'error': f'Typing failed: {e}'}
+
+        future = asyncio.run_coroutine_threadsafe(_type(), loop)
+        result = future.result()
+        return jsonify(result)
+    return jsonify({'error': 'Session not found'}), 404
+
+@app.route('/api/browser/<session_id>/scroll', methods=['POST'])
+@login_required
+def browser_scroll(session_id):
+    delta_y = request.json.get('deltaY', 0)
+    if session_id in browser_sessions:
+        page = browser_sessions[session_id]['page']
+        async def _scroll():
+            try:
+                await page.mouse.wheel(0, delta_y)
+                return {'message': 'Scrolled'}
+            except Exception as e:
+                return {'error': f'Scroll failed: {e}'}
+
+        future = asyncio.run_coroutine_threadsafe(_scroll(), loop)
+        result = future.result()
+        return jsonify(result)
+    return jsonify({'error': 'Session not found'}), 404
+
+
 @app.route('/api/files/new_text_file', methods=['POST'])
 @login_required
 def new_text_file():
@@ -524,6 +692,19 @@ def index():
 def serve_static(path):
     return send_from_directory(app.static_folder, path)
 
+import atexit
+
+def shutdown_playwright():
+    if playwright:
+        async def _shutdown():
+            await playwright.stop()
+
+        future = asyncio.run_coroutine_threadsafe(_shutdown(), loop)
+        future.result()
+
 if __name__ == '__main__':
     init_db()
+    start_event_loop_thread()
+    start_playwright()
+    atexit.register(shutdown_playwright)
     app.run(debug=True, port=5001)
