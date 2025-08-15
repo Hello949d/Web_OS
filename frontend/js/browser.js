@@ -45,25 +45,21 @@ function createBrowserWindow() {
 
     async function navigate() {
         if (!sessionId) return;
-        const userInput = addressBar.value.trim();
-        if (!userInput) return;
+        let url = addressBar.value.trim();
+        if (!url) return;
 
-        let navigationUrl;
-
-        // Check if it's a valid URL or a search term
-        if (!userInput.match(/^https?:\/\//) && userInput.includes('.') && !userInput.includes(' ')) {
-            // It's a domain name without protocol, so we'll treat it as a URL
-            navigationUrl = 'https://' + userInput;
-            addressBar.value = navigationUrl; // Update address bar with the full URL
-        } else if (userInput.match(/^https?:\/\//)) {
-            // It's a full URL
-            navigationUrl = userInput;
-        } else {
-            // Assume it's a search query
-            navigationUrl = `https://www.google.com/search?q=${encodeURIComponent(userInput)}`;
-            // Do NOT update the address bar value, keep the search term
+        // Basic check if it's a valid URL or a search term
+        if (!url.match(/^https?:\/\//)) {
+            // Check if it looks like a domain name
+            if (url.includes('.') && !url.includes(' ')) {
+                url = 'https://' + url;
+            } else {
+                // Assume it's a search query
+                url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+            }
         }
 
+        addressBar.value = url; // Update address bar with the full URL
         loadingOverlay.classList.remove('hidden');
         browserIframe.src = 'about:blank'; // Clear previous page
 
@@ -72,13 +68,12 @@ function createBrowserWindow() {
             await fetch(`/api/browser/${sessionId}/navigate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: navigationUrl }),
+                body: JSON.stringify({ url }),
                 credentials: 'include'
             });
 
-            // Then, set the iframe source to our proxy. The URL param is not strictly needed
-            // by the new backend logic, but it's good for debugging and consistency.
-            browserIframe.src = `/api/browser/${sessionId}/view?url=${encodeURIComponent(navigationUrl)}`;
+            // Then, set the iframe source to our proxy
+            browserIframe.src = `/api/browser/${sessionId}/view?url=${encodeURIComponent(url)}`;
 
             browserIframe.onload = () => {
                 loadingOverlay.classList.add('hidden');

@@ -637,95 +637,39 @@ def browser_scroll(session_id):
 @app.route('/api/browser/<session_id>/view')
 @login_required
 def browser_view(session_id):
+    url = request.args.get('url')
+    if not url:
+        return "URL parameter is required.", 400
+
     if session_id not in browser_sessions:
         return "Session not found.", 404
 
-    page = browser_sessions[session_id]['page']
+    try:
+        headers = {
+            'User-Agent': request.headers.get('User-Agent'),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': url,
+        }
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
 
-    async def _get_content_and_inject_scripts():
-        try:
-            content = await page.content()
-            current_url = page.url
+        # Inject a <base> tag to handle relative URLs
+        content = response.text
+        parsed_url = urlparse(url)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
 
-            if current_url == 'about:blank':
-                return "<html><body>Loading...</body></html>", 200, {'Content-Type': 'text/html; charset=utf-8'}
+        # A simple way to inject base tag. This might fail on complex HTML.
+        if '<head>' in content:
+            content = content.replace('<head>', f'<head><base href="{base_url}">')
+        else:
+            # Fallback for documents without a <head> tag
+            content = f'<head><base href="{base_url}"></head>' + content
 
-            # 1. Inject a <base> tag to handle relative URLs
-            parsed_url = urlparse(current_url)
-            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        return content, response.status_code, {'Content-Type': response.headers.get('content-type')}
 
-            import re
-            if not re.search(r'<base\s+href.*?>', content, re.IGNORECASE):
-                if re.search(r'<head.*?>', content, re.IGNORECASE):
-                    content = re.sub(r'(<head.*?>)', f'\\1<base href="{base_url}">', content, count=1, flags=re.IGNORECASE)
-                else:
-                    content = f'<head><base href="{base_url}"></head>' + content
-
-            # 2. Inject interaction script
-            # This script intercepts clicks and form submissions to proxy them through the backend
-            injection_script = f"""
-<script>
-    document.addEventListener('DOMContentLoaded', () => {{
-        // --- Intercept Link Clicks ---
-        document.body.addEventListener('click', (e) => {{
-            let target = e.target;
-            while (target && target.tagName !== 'A') {{ target = target.parentElement; }}
-            if (target && target.tagName === 'A' && target.href && target.target !== '_blank') {{
-                e.preventDefault();
-                const absoluteUrl = target.href;
-                fetch('/api/browser/{session_id}/navigate', {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ url: absoluteUrl }}),
-                    credentials: 'include'
-                }}).then(res => {{
-                    if (res.ok) window.location.reload();
-                    else console.error('Proxy navigation failed');
-                }});
-            }}
-        }});
-
-        // --- Intercept Form Submissions (GET only) ---
-        document.body.addEventListener('submit', (e) => {{
-            const form = e.target;
-            if (form && form.tagName === 'FORM' && (!form.method || form.method.toLowerCase() === 'get')) {{
-                e.preventDefault();
-                const formData = new FormData(form);
-                const params = new URLSearchParams(formData);
-                // The <base> tag ensures form.action is an absolute URL
-                const formActionUrl = new URL(form.action);
-                formActionUrl.search = params.toString();
-                const navigationUrl = formActionUrl.href;
-
-                fetch('/api/browser/{session_id}/navigate', {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{ url: navigationUrl }}),
-                    credentials: 'include'
-                }}).then(res => {{
-                    if (res.ok) window.location.reload();
-                    else console.error('Proxy form submission failed');
-                }});
-            }}
-        }});
-    }});
-</script>
-"""
-            # Inject script before closing body tag, or at the end of the content
-            if re.search(r'</body>', content, re.IGNORECASE):
-                content = re.sub(r'</body>', injection_script + '</body>', content, flags=re.IGNORECASE)
-            else:
-                content += injection_script
-
-            return content, 200, {{'Content-Type': 'text/html; charset=utf-8'}}
-        except Exception as e:
-            print(f"Error in _get_content_and_inject_scripts: {{e}}")
-            return f"<html><body>Error loading page: {{e}}</body></html>", 500, {{'Content-Type': 'text/html; charset=utf-8'}}
-
-    future = asyncio.run_coroutine_threadsafe(_get_content_and_inject_scripts(), loop)
-    content, status, headers = future.result()
-
-    return content, status, headers
+    except requests.exceptions.RequestException as e:
+        return f"Failed to fetch URL: {e}", 500
 
 
 @app.route('/api/files/new_text_file', methods=['POST'])
