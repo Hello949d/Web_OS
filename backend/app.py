@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, send_from_directory, request, session, send_file
+from flask import Flask, jsonify, send_from_directory, request, session, send_file, Response
 from flask_cors import CORS
 from flask_bcrypt import Bcrypt
 from flask_session import Session
@@ -16,6 +16,7 @@ import requests
 from urllib.parse import urljoin, urlparse, quote
 from bs4 import BeautifulSoup
 import uuid
+import re
 
 # --- App Initialization and Configuration ---
 static_folder_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
@@ -598,6 +599,36 @@ def browser_navigate(session_id, page_id):
         return jsonify(result)
     return jsonify({'error': 'Session or page not found'}), 404
 
+@app.route('/api/browser/<session_id>/pages/<page_id>/proxy')
+@login_required
+def proxy_resource(session_id, page_id):
+    url = request.args.get('url')
+    if not url:
+        return "URL is required", 400
+
+    if not url.startswith(('http://', 'https://')):
+        return "Invalid URL scheme", 400
+
+    try:
+        proxied_response = requests.get(url, stream=True, timeout=20, headers={'Referer': url})
+        proxied_response.raise_for_status()
+
+        def generate():
+            for chunk in proxied_response.iter_content(chunk_size=8192):
+                yield chunk
+
+        headers = {
+            'Content-Type': proxied_response.headers.get('Content-Type', 'application/octet-stream'),
+            'Content-Length': proxied_response.headers.get('Content-Length'),
+            'Cache-Control': 'public, max-age=86400'
+        }
+        headers = {k: v for k, v in headers.items() if v is not None}
+
+        return Response(generate(), status=proxied_response.status_code, headers=headers)
+    except requests.exceptions.RequestException as e:
+        print(f"Error proxying {url}: {e}")
+        return "Failed to proxy resource", 502
+
 @app.route('/api/browser/<session_id>/pages/<page_id>/view')
 @login_required
 def browser_view(session_id, page_id):
@@ -648,18 +679,61 @@ def browser_view(session_id, page_id):
         head.append(base_tag)
         head.append(post_message_script)
 
-    for tag in soup.find_all(['a', 'link'], href=True):
-        href = tag['href']
-        if href.startswith('javascript:'): continue
-        absolute_url = urljoin(base_url, href)
-        if not href.startswith('#'):
-            tag['href'] = f"/api/browser/{session_id}/pages/{page_id}/navigate_and_view?url={quote(absolute_url)}"
+    def proxy_css_urls(css_text):
+        def replacer(m):
+            original_url = m.group(1).strip('\'"')
+            if original_url.startswith('data:'):
+                return f"url('{original_url}')"
+            absolute_url = urljoin(base_url, original_url)
+            proxied_url = f"/api/browser/{session_id}/pages/{page_id}/proxy?url={quote(absolute_url)}"
+            return f"url('{proxied_url}')"
+        return re.sub(r'url\((.*?)\)', replacer, css_text)
+
+    for tag in soup.find_all(style=True):
+        tag['style'] = proxy_css_urls(tag['style'])
+
+    for style_tag in soup.find_all('style'):
+        if style_tag.string:
+            style_tag.string.replace_with(proxy_css_urls(style_tag.string))
+
+    tags_to_rewrite = {
+        'a': ['href'], 'link': ['href'], 'img': ['src', 'srcset'],
+        'script': ['src'], 'audio': ['src'], 'video': ['src', 'poster'],
+        'source': ['src', 'srcset'], 'embed': ['src'], 'iframe': ['src'],
+        'object': ['data'], 'track': ['src'],
+    }
+
+    for tag_name, attrs in tags_to_rewrite.items():
+        for tag in soup.find_all(tag_name):
+            for attr in attrs:
+                if not tag.has_attr(attr): continue
+
+                val = tag[attr]
+                if not val or val.startswith('data:') or val.startswith('javascript:'): continue
+                if val.startswith('#'): continue
+
+                if attr != 'srcset':
+                    absolute_url = urljoin(base_url, val)
+                    if tag_name == 'a' or (tag_name == 'link' and tag.get('rel') != ['stylesheet']):
+                        tag[attr] = f"/api/browser/{session_id}/pages/{page_id}/navigate_and_view?url={quote(absolute_url)}"
+                    else:
+                        tag[attr] = f"/api/browser/{session_id}/pages/{page_id}/proxy?url={quote(absolute_url)}"
+                else:
+                    new_srcset = []
+                    for part in val.split(','):
+                        part = part.strip()
+                        if not part: continue
+                        url_part, *descriptor_part = part.split(maxsplit=1)
+                        descriptor = descriptor_part[0] if descriptor_part else ''
+                        absolute_url = urljoin(base_url, url_part)
+                        proxied_url = f"/api/browser/{session_id}/pages/{page_id}/proxy?url={quote(absolute_url)}"
+                        new_srcset.append(f"{proxied_url} {descriptor}")
+                    tag[attr] = ", ".join(new_srcset)
 
     for form in soup.find_all('form', action=True):
         action = form['action']
         absolute_url = urljoin(base_url, action)
-        # This needs a dedicated form submission endpoint
-        # form['action'] = f"/api/browser/{session_id}/pages/{page_id}/submit_form?url={quote(absolute_url)}"
+        form['action'] = f"/api/browser/{session_id}/pages/{page_id}/navigate_and_view?url={quote(absolute_url)}"
 
     return str(soup), 200, {'Content-Type': 'text/html; charset=utf-8'}
 
